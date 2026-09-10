@@ -1,0 +1,428 @@
+/* Manekan v0.3.8 — fintech polish layered over v0.3.7.
+   Presentation only: no calculation, storage, payment, or PWA logic changes. */
+
+:root {
+  color-scheme: light;
+}
+
+.mk-root.mk-root {
+  --paper-2: #eef3f0;
+  --surface-raised: rgba(255, 255, 255, 0.94);
+  --green-deep: #15483e;
+  --green: #246c5b;
+  --green-light: #e7f2ee;
+  --hairline: rgba(29, 70, 58, 0.10);
+  --shadow-1: 0 1px 2px rgba(24, 55, 46, 0.035), 0 8px 24px rgba(24, 55, 46, 0.055);
+  --shadow-2: 0 2px 5px rgba(20, 49, 41, 0.055), 0 18px 44px rgba(20, 49, 41, 0.10);
+}
+
+.mk-root .mk-hero-amount,
+.mk-root .mk-stat-value,
+.mk-root .mk-card-outstanding,
+.mk-root .mk-passbook-balance,
+.mk-root .mk-schedule-amount,
+.mk-root .mk-tx-amount,
+.mk-root .mk-next-amount,
+.mk-root .mk-calendar-stat-value,
+.mk-root .mk-calendar-event-amount,
+.mk-root .mk-recurring-amount,
+.mk-root .mk-equation-row,
+.mk-root .mk-transition-amount,
+.mk-root .mk-quick-amount-input {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.mk-root .mk-hero-amount {
+  font-weight: 760;
+  letter-spacing: -0.045em;
+}
+
+.mk-root .mk-stat-value,
+.mk-root .mk-card-outstanding,
+.mk-root .mk-passbook-balance {
+  font-weight: 720;
+}
+
+.mk-root.mk-root {
+  background:
+    radial-gradient(circle at 50% -90px, rgba(53, 134, 111, 0.09), transparent 300px),
+    linear-gradient(180deg, #f9fbfa 0, #f3f7f5 160px, #eef3f0 100%);
+}
+
+.mk-root .mk-header {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+}
+
+.mk-root .mk-header h1 {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", "Segoe UI", sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.mk-root .mk-hero {
+  min-height: 205px;
+  justify-content: center;
+  padding: 28px 22px 24px;
+  border-radius: 28px;
+}
+
+.mk-root .mk-hero-normal {
+  background:
+    radial-gradient(circle at 92% 10%, rgba(255,255,255,0.15), transparent 150px),
+    linear-gradient(145deg, #317d69 0%, #236353 48%, #17473e 100%);
+  box-shadow: 0 18px 42px rgba(23, 77, 64, 0.23);
+}
+
+.mk-root .mk-hero-top {
+  margin-bottom: 7px;
+}
+
+.mk-root .mk-hero-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.mk-root .mk-hero > div:nth-child(3) {
+  font-size: 11px !important;
+  opacity: 0.72 !important;
+  margin-top: 4px;
+  margin-bottom: 13px !important;
+}
+
+.mk-root .mk-hero > div:last-child {
+  min-height: 29px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  font-size: 12px !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.mk-root .mk-hero-warning > div:last-child,
+.mk-root .mk-hero-danger > div:last-child {
+  background: rgba(255,255,255,0.42);
+}
+
+.mk-root .mk-stats {
+  position: relative;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 18px;
+  border: 1px solid var(--hairline);
+  border-radius: 19px;
+  overflow: hidden;
+  background: rgba(29, 70, 58, 0.07);
+  box-shadow: var(--shadow-1);
+}
+
+.mk-root .mk-stat,
+.mk-root .mk-stat.mk-stat-wide {
+  grid-column: auto;
+  min-width: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 13px 9px 12px;
+  background: rgba(255,255,255,0.97);
+  text-align: center;
+}
+
+.mk-root .mk-stat-label {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 3px;
+  font-size: 9.8px;
+  line-height: 1.25;
+  color: #7b8983;
+}
+
+.mk-root .mk-stat-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(14px, 4vw, 18px);
+  letter-spacing: -0.035em;
+}
+
+.mk-root .mk-section-title {
+  margin-top: 24px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.mk-root .mk-next-payment,
+.mk-root .mk-card-tile,
+.mk-root .mk-schedule-item,
+.mk-root .mk-tx-item,
+.mk-root .mk-log-item,
+.mk-root .mk-equation,
+.mk-root .mk-recurring-box,
+.mk-root .mk-calendar-shell,
+.mk-root .mk-calendar-detail,
+.mk-root .mk-passbook {
+  box-shadow: var(--shadow-1);
+}
+
+.mk-root .mk-next-payment {
+  min-height: 76px;
+  padding: 14px;
+}
+
+.mk-root .mk-next-info {
+  min-width: 0;
+}
+
+.mk-root .mk-next-card,
+.mk-root .mk-next-account {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mk-root .mk-card-tile {
+  min-height: 100px;
+}
+
+.mk-root .mk-card-tile-head {
+  margin-bottom: 13px;
+}
+
+.mk-root .mk-card-next b {
+  font-size: 13px;
+}
+
+.mk-root .mk-detail-card {
+  min-height: 145px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: var(--shadow-2);
+}
+
+.mk-root .mk-passbook {
+  background-image: none;
+}
+
+.mk-root .mk-passbook::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(39, 107, 89, 0.035), transparent 45%);
+}
+
+.mk-root .mk-passbook-head,
+.mk-root .mk-passbook-log-row,
+.mk-root .mk-passbook-upcoming-row,
+.mk-root .mk-passbook-actions,
+.mk-root .mk-passbook-balance,
+.mk-root .mk-passbook-balance-label,
+.mk-root .mk-passbook-divider {
+  position: relative;
+  z-index: 1;
+}
+
+.mk-root .mk-calendar-shell {
+  padding: 15px 13px 14px;
+}
+
+.mk-root .mk-calendar-weekday {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #87938e;
+}
+
+.mk-root .mk-calendar-day {
+  position: relative;
+  aspect-ratio: 1 / 1.05;
+  padding: 6px 2px 5px;
+}
+
+.mk-root .mk-calendar-day-number {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.mk-root .mk-calendar-day.today::before {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(39,107,89,0.09);
+  top: 1px;
+  z-index: 0;
+}
+
+.mk-root .mk-calendar-day.today .mk-calendar-day-number,
+.mk-root .mk-calendar-day.today .mk-calendar-dots {
+  position: relative;
+  z-index: 1;
+}
+
+.mk-root .mk-calendar-day.today {
+  box-shadow: none;
+}
+
+.mk-root .mk-calendar-day.selected {
+  background: #e6f1ed;
+  border-color: #b7d8cc;
+}
+
+.mk-root .mk-calendar-dots {
+  gap: 2.5px;
+}
+
+.mk-root .mk-calendar-dot {
+  width: 5.5px;
+  height: 5.5px;
+}
+
+.mk-root .mk-calendar-event {
+  min-height: 52px;
+  padding: 10px 0;
+}
+
+.mk-root .mk-calendar-event-mark {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 4px rgba(39,107,89,0.06);
+}
+
+.mk-root .mk-calendar-event-name {
+  font-size: 13px;
+}
+
+.mk-root .mk-field input,
+.mk-root .mk-field select {
+  min-height: 47px;
+  font-size: 16px;
+}
+
+.mk-root .mk-quick-amount-input {
+  min-height: 58px !important;
+  font-size: 32px !important;
+}
+
+.mk-root .mk-color-dot {
+  width: 30px;
+  height: 30px;
+}
+
+.mk-root .mk-quick-fab {
+  min-height: 48px;
+  bottom: calc(91px + env(safe-area-inset-bottom));
+  padding: 12px 17px 12px 14px;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  box-shadow: 0 12px 28px rgba(21,72,62,0.26), 0 2px 5px rgba(21,72,62,0.16);
+}
+
+.mk-root .mk-nav {
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  padding: 5px;
+  background: rgba(252,253,252,0.93);
+  border-color: rgba(34, 77, 65, 0.12);
+  box-shadow: 0 12px 40px rgba(20,49,41,0.16), 0 2px 8px rgba(20,49,41,0.06);
+}
+
+.mk-root .mk-nav-btn {
+  position: relative;
+  min-height: 54px;
+  color: #77867f;
+}
+
+.mk-root .mk-nav-btn.active {
+  color: var(--green-deep);
+  background: #e6f0ec;
+}
+
+.mk-root .mk-nav-btn.active::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #2f806b;
+}
+
+.mk-root .mk-modal {
+  animation: mk-sheet-in 180ms cubic-bezier(.22,.8,.34,1) both;
+}
+
+.mk-root .mk-overlay {
+  animation: mk-overlay-in 150ms ease-out both;
+}
+
+@keyframes mk-sheet-in {
+  from { transform: translateY(18px); opacity: 0.96; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes mk-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.mk-root button,
+.mk-root .mk-card-tile,
+.mk-root .mk-calendar-day {
+  touch-action: manipulation;
+}
+
+.mk-root button:focus-visible,
+.mk-root .mk-card-tile:focus-visible,
+.mk-root .mk-calendar-day:focus-visible {
+  outline: 3px solid rgba(45,116,98,0.22);
+  outline-offset: 2px;
+}
+
+.mk-root .mk-undo-toast {
+  bottom: calc(153px + env(safe-area-inset-bottom));
+  padding: 11px 10px 11px 13px;
+}
+
+@media (max-width: 390px) {
+  .mk-root .mk-stat-label {
+    font-size: 9px;
+  }
+
+  .mk-root .mk-stat-value {
+    font-size: 14px;
+  }
+
+  .mk-root .mk-hero {
+    min-height: 194px;
+  }
+}
+
+@media (max-width: 340px) {
+  .mk-root .mk-stats {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+
+  .mk-root .mk-stat-label {
+    height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-root .mk-modal,
+  .mk-root .mk-overlay {
+    animation: none !important;
+  }
+}
