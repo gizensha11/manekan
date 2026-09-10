@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Home, CreditCard, BookOpen, Wallet, Plus, X, Pencil, Trash2,
-  AlertTriangle, ChevronRight, ChevronLeft, ArrowDownCircle, ArrowUpCircle, Check
+  AlertTriangle, ChevronRight, ChevronLeft, ArrowDownCircle, ArrowUpCircle, Check, Download, Upload, CalendarDays
 } from "lucide-react";
 
 /* ---------- helpers ---------- */
@@ -21,12 +21,24 @@ const dateForMonthDay = (key, day) => {
 const computePaymentMonth = (usageDateStr, closingDay) => {
   const d = new Date(usageDateStr + "T00:00:00");
   const day = d.getDate();
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  
   let closingKey = monthKeyOf(d);
-  if (day > closingDay) closingKey = addMonthsToKey(closingKey, 1);
+  let actualClosingDay = closingDay === 'end' 
+    ? new Date(year, month + 1, 0).getDate() 
+    : Number(closingDay);
+    
+  if (day > actualClosingDay) closingKey = addMonthsToKey(closingKey, 1);
   return addMonthsToKey(closingKey, 1);
 };
 const fmtDate = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
 const fmtDateFull = (d) => `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+const dateKeyOf = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const monthLabel = (key) => {
+  const [y, m] = key.split("-").map(Number);
+  return `${y}年${m}月`;
+};
 const yen = (n) => `${n < 0 ? "-" : ""}¥${Math.abs(Math.round(n)).toLocaleString("ja-JP")}`;
 const todayStr = () => {
   const d = new Date();
@@ -70,6 +82,9 @@ const INITIAL = {
     { id: uid(), accountId: "acc-yucho", type: "deposit", amount: 50000, date: "2026-08-25", memo: "給与" },
     { id: uid(), accountId: "acc-yucho", type: "withdraw", amount: 3000, date: "2026-08-28", memo: "ATM出金" },
   ],
+  incomes: [],
+  recurringRules: [],
+  recurringDone: []
 };
 
 /* ---------- small UI atoms ---------- */
@@ -97,54 +112,12 @@ function Field({ label, children }) {
   );
 }
 
-function StatusBadge({ status }) {
-  return (
-    <span className="mk-badge" style={{ "--badge-color": status.color }}>
-      <i /> {status.label}
-    </span>
-  );
-}
-
 function ConfirmDelete({ onConfirm, onCancel }) {
   return (
     <div className="mk-confirm">
       <span>削除しますか？</span>
       <button className="mk-mini-btn mk-mini-danger" onClick={onConfirm}><Check size={14} /> 削除</button>
       <button className="mk-mini-btn" onClick={onCancel}>やめる</button>
-    </div>
-  );
-}
-
-/* ---------- wallet visual ---------- */
-
-function walletLevel(free, low, mid) {
-  if (free < 0) return -1;
-  if (free < low) return 1;
-  if (free < mid) return 2;
-  if (free < mid * 2.5) return 3;
-  return 4;
-}
-
-function WalletVisual({ free, low, mid, size = "large" }) {
-  const level = walletLevel(free, low, mid);
-  const bills = level > 0 ? level * 2 : 0;
-  const coins = level > 0 ? level : 0;
-  return (
-    <div className={`mk-wallet mk-wallet-${size} ${level < 0 ? "mk-wallet-danger" : level === 0 ? "mk-wallet-empty" : ""}`}>
-      <div className="mk-wallet-pocket">
-        <div className="mk-wallet-contents">
-          {Array.from({ length: bills }).map((_, i) => (
-            <div key={"b" + i} className="mk-bill" style={{ "--i": i }} />
-          ))}
-          <div className="mk-coins-row">
-            {Array.from({ length: coins }).map((_, i) => (
-              <div key={"c" + i} className="mk-coin" style={{ "--i": i }} />
-            ))}
-          </div>
-        </div>
-        {level <= 0 && <div className="mk-wallet-flap" />}
-        {level < 0 && <AlertTriangle className="mk-wallet-warn" size={size === "large" ? 30 : 20} />}
-      </div>
     </div>
   );
 }
@@ -189,7 +162,10 @@ function CardForm({ initial, accounts, onSave, onCancel }) {
       </Field>
       <div className="mk-form-row">
         <Field label="締め日">
-          <input type="number" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(Number(e.target.value))} />
+          <select value={closingDay} onChange={(e) => setClosingDay(e.target.value === 'end' ? 'end' : Number(e.target.value))}>
+            {Array.from({length: 31}, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}日</option>)}
+            <option value="end">月末</option>
+          </select>
         </Field>
         <Field label="支払日">
           <input type="number" min={1} max={31} value={paymentDay} onChange={(e) => setPaymentDay(Number(e.target.value))} />
@@ -220,7 +196,7 @@ function CardForm({ initial, accounts, onSave, onCancel }) {
           disabled={!name.trim() || !accountId}
           onClick={() => onSave({
             id: initial?.id ?? uid(), name: name.trim(),
-            closingDay: Math.min(31, Math.max(1, Number(closingDay) || 1)),
+            closingDay: closingDay === 'end' ? 'end' : Math.min(31, Math.max(1, Number(closingDay) || 1)),
             paymentDay: Math.min(31, Math.max(1, Number(paymentDay) || 1)),
             accountId, color,
           })}
@@ -284,6 +260,88 @@ function TransactionForm({ cards, presetCardId, onSave, onCancel }) {
   );
 }
 
+function QuickTransactionForm({ cards, presetCardId, onSave, onCancel }) {
+  const initialCardId = presetCardId && cards.some((c) => c.id === presetCardId)
+    ? presetCardId
+    : (cards[0]?.id ?? "");
+  const [cardId, setCardId] = useState(initialCardId);
+  const [amount, setAmount] = useState("");
+  const [memo, setMemo] = useState("");
+  const [date, setDate] = useState(todayStr());
+
+  const card = cards.find((c) => c.id === cardId);
+  const paymentMonth = card ? computePaymentMonth(date, card.closingDay) : "";
+
+  const submit = (e) => {
+    e?.preventDefault?.();
+    if (!cardId || !(Number(amount) > 0) || !paymentMonth) return;
+    onSave({
+      id: uid(),
+      cardId,
+      date,
+      amount: Number(amount),
+      memo: memo.trim(),
+      paymentMonth,
+      paid: false,
+      paidDate: null,
+    });
+  };
+
+  return (
+    <form className="mk-form" onSubmit={submit}>
+      <div className="mk-quick-note">カードを選んで金額を入れるだけ。支払い月は自動で判定します。</div>
+
+      <div className="mk-quick-card-grid">
+        {cards.map((c) => (
+          <button
+            type="button"
+            key={c.id}
+            className={`mk-quick-card ${cardId === c.id ? "active" : ""}`}
+            style={{ "--quick-color": c.color }}
+            onClick={() => setCardId(c.id)}
+          >
+            <span className="mk-quick-card-dot" />
+            <span>{c.name}</span>
+          </button>
+        ))}
+      </div>
+
+      <Field label="金額">
+        <input
+          type="number"
+          min="1"
+          inputMode="numeric"
+          autoFocus
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="0"
+          className="mk-quick-amount-input"
+        />
+      </Field>
+
+      <div className="mk-form-row">
+        <Field label="利用日">
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="支払い予定月">
+          <div className="mk-quick-auto-month">{paymentMonth || "-"}</div>
+        </Field>
+      </div>
+
+      <Field label="店名・メモ（任意）">
+        <input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="例）コンビニ" />
+      </Field>
+
+      <div className="mk-form-actions">
+        <button type="button" className="mk-btn mk-btn-ghost" onClick={onCancel}>キャンセル</button>
+        <button type="submit" className="mk-btn mk-btn-primary" disabled={!cardId || !(Number(amount) > 0)}>
+          <Plus size={15} /> 登録
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function AccountLogForm({ onSave, onCancel }) {
   const [type, setType] = useState("deposit");
   const [amount, setAmount] = useState("");
@@ -318,15 +376,123 @@ function AccountLogForm({ onSave, onCancel }) {
   );
 }
 
+function IncomeForm({ accounts, onSave, onCancel }) {
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+
+  return (
+    <div className="mk-form">
+      <Field label="収入名">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例）バイト代、給料" />
+      </Field>
+      <Field label="金額">
+        <input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+      </Field>
+      <Field label="入金予定日">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+      </Field>
+      <Field label="入金口座">
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          {accounts.length === 0 && <option value="">口座を先に登録してください</option>}
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>
+      <div className="mk-form-actions">
+        <button className="mk-btn mk-btn-ghost" onClick={onCancel}>キャンセル</button>
+        <button
+          className="mk-btn mk-btn-primary"
+          disabled={!name.trim() || !(Number(amount) > 0) || !accountId}
+          onClick={() => onSave({
+            id: uid(), name: name.trim(), amount: Number(amount), date, accountId, received: false
+          })}
+        >
+          登録
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+function RecurringRuleForm({ initial, accounts, onSave, onCancel }) {
+  const [type, setType] = useState(initial?.type ?? "income");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [amount, setAmount] = useState(initial?.amount ?? "");
+  const [day, setDay] = useState(initial?.day ?? 25);
+  const [accountId, setAccountId] = useState(initial?.accountId ?? accounts[0]?.id ?? "");
+  const [startMonth, setStartMonth] = useState(initial?.startMonth ?? monthKeyOf(new Date()));
+
+  const submit = (e) => {
+    e?.preventDefault?.();
+    if (!name.trim() || !(Number(amount) > 0) || !accountId) return;
+    onSave({
+      id: initial?.id ?? uid(),
+      type,
+      name: name.trim(),
+      amount: Number(amount),
+      day: Math.min(31, Math.max(1, Number(day) || 1)),
+      accountId,
+      startMonth,
+      active: initial?.active ?? true,
+    });
+  };
+
+  return (
+    <form className="mk-form" onSubmit={submit}>
+      <div className="mk-toggle-row">
+        <button type="button" className={`mk-toggle ${type === "income" ? "mk-toggle-active" : ""}`} onClick={() => setType("income")}>
+          <ArrowDownCircle size={16} /> 定期収入
+        </button>
+        <button type="button" className={`mk-toggle ${type === "expense" ? "mk-toggle-active" : ""}`} onClick={() => setType("expense")}>
+          <ArrowUpCircle size={16} /> 定期支出
+        </button>
+      </div>
+      <Field label="名前">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={type === "income" ? "例）バイト代" : "例）家賃、サブスク"} />
+      </Field>
+      <div className="mk-form-row">
+        <Field label="金額">
+          <input type="number" min="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+        </Field>
+        <Field label="毎月の日付">
+          <input type="number" min="1" max="31" value={day} onChange={(e) => setDay(e.target.value)} />
+        </Field>
+      </div>
+      <Field label={type === "income" ? "入金口座" : "支出口座"}>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          {accounts.length === 0 && <option value="">口座を先に登録してください</option>}
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </Field>
+      <Field label="開始月">
+        <input type="month" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} />
+      </Field>
+      <div className="mk-quick-note">29〜31日を指定した月でその日が存在しない場合は、その月の末日として扱います。</div>
+      <div className="mk-form-actions">
+        <button type="button" className="mk-btn mk-btn-ghost" onClick={onCancel}>キャンセル</button>
+        <button type="submit" className="mk-btn mk-btn-primary" disabled={!name.trim() || !(Number(amount) > 0) || !accountId}>
+          {initial ? "保存" : "登録"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 /* ---------- main app ---------- */
 
 export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
   const [data, setData] = useState(INITIAL);
-  const [modal, setModal] = useState(null); // {type, payload}
+  const [modal, setModal] = useState(null); 
   const [selectedCardId, setSelectedCardId] = useState(null);
-  const [confirming, setConfirming] = useState(null); // id of item pending delete confirm
+  const [confirming, setConfirming] = useState(null); 
+  const [backupMessage, setBackupMessage] = useState(null);
+  const [undoEntry, setUndoEntry] = useState(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => monthKeyOf(startOfToday()));
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState(() => todayStr());
 
   useEffect(() => {
     (async () => {
@@ -334,7 +500,7 @@ export default function App() {
         const res = await window.storage.get("manekan-data", false);
         if (res && res.value) setData(JSON.parse(res.value));
       } catch (e) {
-        // no saved data yet — keep INITIAL
+        // no saved data yet
       } finally {
         setLoaded(true);
       }
@@ -352,8 +518,24 @@ export default function App() {
     })();
   }, [data, loaded]);
 
-  const { accounts, cards, transactions, accountLogs, minSecure, thresholdLow, thresholdMid } = data;
-  const update = (patch) => setData((d) => ({ ...d, ...patch }));
+  const {
+    accounts, cards, transactions, accountLogs, minSecure, thresholdLow, thresholdMid,
+    incomes = [], lastUsedCardId = null, recurringRules = [], recurringDone = []
+  } = data;
+  const update = (patch, label = "変更しました") => {
+    setUndoEntry({ data, label });
+    setData((d) => ({ ...d, ...patch }));
+  };
+
+  const undoLastChange = () => {
+    if (!undoEntry) return;
+    const { data: previousData, label } = undoEntry;
+    setData(previousData);
+    setUndoEntry(null);
+    setConfirming(null);
+    setModal(null);
+    setBackupMessage({ type: "success", text: `「${label}」を取り消しました` });
+  };
 
   /* ----- derived data ----- */
 
@@ -377,15 +559,14 @@ export default function App() {
 
   const totalAccountBalance = accounts.reduce((s, a) => s + a.balance, 0);
   const totalFuturePayments = cardsWithSchedule.reduce((s, c) => s + c.outstanding, 0);
+  
   const freeMoney = totalAccountBalance - totalFuturePayments - minSecure;
   
-  const status = freeMoney < 0
-    ? { label: "マイナス", color: "var(--danger)" }
-    : freeMoney < thresholdLow
-    ? { label: "少ない", color: "var(--alert)" }
-    : freeMoney < thresholdMid
-    ? { label: "注意", color: "var(--coin)" }
-    : { label: "余裕あり", color: "var(--bill)" };
+  const heroState = freeMoney < 0
+    ? { type: "danger", label: "支払いに対して不足しています", icon: <AlertTriangle size={18} /> }
+    : freeMoney < minSecure
+    ? { type: "warning", label: "セーフラインを下回っています", icon: <AlertTriangle size={18} /> }
+    : { type: "normal", label: "安全に使える", icon: <Check size={18} /> };
 
   const nextPaymentOverall = useMemo(() => {
     const today = startOfToday();
@@ -400,29 +581,97 @@ export default function App() {
     return best ? { ...best, overdue: best.date < today } : null;
   }, [cardsWithSchedule]);
 
+  const recurringEvents = useMemo(() => {
+    const today = startOfToday();
+    const doneKeys = new Set(recurringDone.map((d) => d.key));
+    const windowStart = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+    const windowEnd = new Date(today.getFullYear(), today.getMonth() + 5, 1);
+    const events = [];
+
+    recurringRules.filter((r) => r.active !== false).forEach((rule) => {
+      const [sy, sm] = String(rule.startMonth || monthKeyOf(today)).split("-").map(Number);
+      const ruleStart = new Date(sy, (sm || 1) - 1, 1);
+      let cursor = ruleStart > windowStart ? ruleStart : windowStart;
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+
+      while (cursor <= windowEnd) {
+        const month = monthKeyOf(cursor);
+        const key = `${rule.id}:${month}`;
+        if (!doneKeys.has(key)) {
+          const date = dateForMonthDay(month, rule.day);
+          events.push({
+            key,
+            ruleId: rule.id,
+            month,
+            date,
+            amount: rule.type === "expense" ? -Math.abs(rule.amount) : Math.abs(rule.amount),
+            rawAmount: Math.abs(rule.amount),
+            label: rule.name,
+            type: rule.type,
+            accountId: rule.accountId,
+            overdue: date < today,
+            recurring: true,
+          });
+        }
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+      }
+    });
+
+    return events.sort((a, b) => {
+      if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+      return a.amount - b.amount;
+    });
+  }, [recurringRules, recurringDone]);
+
   const accountViews = useMemo(() => {
     const today = startOfToday();
     return accounts.map((acc) => {
       const linkedCards = cardsWithSchedule.filter((c) => c.accountId === acc.id);
-      const upcoming = linkedCards
-        .flatMap((c) => c.schedule.filter((s) => s.amount > 0).map((s) => ({ ...s, cardName: c.name, overdue: s.date < today })))
-        .sort((a, b) => a.date - b.date);
+      const upcomingPayments = linkedCards
+        .flatMap((c) => c.schedule.filter((s) => s.amount > 0).map((s) => ({
+          date: s.date, amount: -s.amount, label: c.name, type: 'payment', overdue: s.date < today
+        })));
+        
+      const upcomingIncomes = incomes
+        .filter((inc) => inc.accountId === acc.id && !inc.received)
+        .map((inc) => {
+          const d = new Date(inc.date + "T00:00:00");
+          return {
+            date: d, amount: inc.amount, label: inc.name, type: 'income', overdue: d < today, original: inc
+          };
+        });
+
+      const upcomingRecurring = recurringEvents
+        .filter((ev) => ev.accountId === acc.id)
+        .map((ev) => ({ ...ev }));
+
+      // 同日の場合は安全側に倒して、支出（負の値）を先に適用する。
+      const upcoming = [...upcomingPayments, ...upcomingIncomes, ...upcomingRecurring].sort((a, b) => {
+        if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+        return a.amount - b.amount;
+      });
       
       let running = acc.balance;
       let shortfall = null;
       for (const p of upcoming) {
-        running -= p.amount;
+        // 修正2: 期限超過の収入は加算しない（計算から除外）
+        if (p.type === 'income' && p.overdue) {
+          continue;
+        }
+        
+        running += p.amount;
         if (running < 0 && !shortfall) shortfall = { date: p.date, needed: -running };
       }
+      
       const logs = accountLogs.filter((l) => l.accountId === acc.id).sort((a, b) => new Date(b.date) - new Date(a.date));
       return { ...acc, upcoming, shortfall, logs };
     });
-  }, [accounts, cardsWithSchedule, accountLogs]);
+  }, [accounts, cardsWithSchedule, accountLogs, incomes, recurringEvents]);
 
   const fundsTransition = useMemo(() => {
     const today = startOfToday();
     let overdueAmount = 0;
-    const byDate = {};
+    const events = [];
 
     cardsWithSchedule.forEach((c) => {
       c.schedule.forEach((s) => {
@@ -430,16 +679,36 @@ export default function App() {
           if (s.date < today) {
             overdueAmount += s.amount;
           } else {
-            const key = s.date.getTime();
-            byDate[key] = (byDate[key] || 0) + s.amount;
+            events.push({ date: s.date, amount: -s.amount, label: c.name, type: 'payment' });
           }
         }
       });
     });
 
-    const points = Object.entries(byDate)
-      .map(([t, amount]) => ({ date: new Date(Number(t)), amount }))
-      .sort((a, b) => a.date - b.date);
+    incomes.forEach((inc) => {
+      if (!inc.received) {
+        const d = new Date(inc.date + "T00:00:00");
+        const isOverdue = d < today;
+        events.push({ date: d, amount: inc.amount, label: inc.name, type: 'income', overdue: isOverdue });
+      }
+    });
+
+    recurringEvents.forEach((ev) => {
+      events.push({
+        date: ev.date,
+        amount: ev.amount,
+        label: `${ev.label}（定期）`,
+        type: ev.type,
+        overdue: ev.overdue,
+        recurring: true,
+      });
+    });
+
+    // 支払いが先になるようにソート
+    events.sort((a, b) => {
+      if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+      return a.amount - b.amount;
+    });
 
     let running = totalAccountBalance - minSecure;
     const rows = [{ label: "現在", amount: running }];
@@ -449,42 +718,201 @@ export default function App() {
       rows.push({ label: "期限超過", amount: running });
     }
 
-    points.forEach((p) => {
-      running -= p.amount;
-      rows.push({ label: fmtDate(p.date), amount: running });
+    events.forEach((ev) => {
+      // 修正2: 期限超過の収入は将来残高に加算しない
+      if (ev.type === 'income' && ev.overdue) {
+        rows.push({
+          label: fmtDate(ev.date),
+          name: ev.label,
+          delta: 0,
+          amount: running,
+          isOverdueIncome: true
+        });
+      } else {
+        running += ev.amount;
+        rows.push({
+          label: fmtDate(ev.date),
+          name: ev.label,
+          delta: ev.amount,
+          amount: running
+        });
+      }
     });
 
-    return rows.slice(0, 6);
-  }, [cardsWithSchedule, totalAccountBalance, minSecure]);
+    return rows.slice(0, 10);
+  }, [cardsWithSchedule, incomes, recurringEvents, totalAccountBalance, minSecure]);
 
   const anyShortfall = accountViews.some((a) => a.shortfall);
+
+  /* ----- future calendar ----- */
+
+  const calendarMonthEvents = useMemo(() => {
+    const today = startOfToday();
+    const doneKeys = new Set(recurringDone.map((d) => d.key));
+    const events = [];
+
+    cardsWithSchedule.forEach((card) => {
+      card.schedule.forEach((s) => {
+        if (monthKeyOf(s.date) !== calendarMonth || !(s.amount > 0)) return;
+        const account = accounts.find((a) => a.id === card.accountId);
+        events.push({
+          id: `cal-card-${card.id}-${s.month}`,
+          date: s.date,
+          dateKey: dateKeyOf(s.date),
+          amount: -s.amount,
+          rawAmount: s.amount,
+          label: card.name,
+          type: 'payment',
+          overdue: s.date < today,
+          accountId: card.accountId,
+          accountName: account?.name ?? '口座不明',
+          cardId: card.id,
+          paymentMonth: s.month,
+          sourceLabel: 'カード支払い',
+        });
+      });
+    });
+
+    incomes.forEach((inc) => {
+      if (inc.received) return;
+      const d = new Date(inc.date + "T00:00:00");
+      if (monthKeyOf(d) !== calendarMonth) return;
+      const account = accounts.find((a) => a.id === inc.accountId);
+      events.push({
+        id: `cal-income-${inc.id}`,
+        date: d,
+        dateKey: dateKeyOf(d),
+        amount: Math.abs(inc.amount),
+        rawAmount: Math.abs(inc.amount),
+        label: inc.name,
+        type: 'income',
+        overdue: d < today,
+        accountId: inc.accountId,
+        accountName: account?.name ?? '口座不明',
+        original: inc,
+        sourceLabel: '収入予定',
+      });
+    });
+
+    recurringRules.filter((r) => r.active !== false).forEach((rule) => {
+      const startMonth = rule.startMonth || monthKeyOf(today);
+      if (calendarMonth < startMonth) return;
+      const key = `${rule.id}:${calendarMonth}`;
+      if (doneKeys.has(key)) return;
+
+      const d = dateForMonthDay(calendarMonth, rule.day);
+      const amount = rule.type === 'expense' ? -Math.abs(rule.amount) : Math.abs(rule.amount);
+      const account = accounts.find((a) => a.id === rule.accountId);
+      events.push({
+        id: `cal-recurring-${key}`,
+        key,
+        ruleId: rule.id,
+        month: calendarMonth,
+        date: d,
+        dateKey: dateKeyOf(d),
+        amount,
+        rawAmount: Math.abs(rule.amount),
+        label: rule.name,
+        type: rule.type,
+        overdue: d < today,
+        recurring: true,
+        accountId: rule.accountId,
+        accountName: account?.name ?? '口座不明',
+        sourceLabel: rule.type === 'income' ? '定期収入' : '定期支出',
+      });
+    });
+
+    return events.sort((a, b) => {
+      if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+      return a.amount - b.amount;
+    });
+  }, [cardsWithSchedule, incomes, recurringRules, recurringDone, calendarMonth, accounts]);
+
+  const calendarGrid = useMemo(() => {
+    const [y, m] = calendarMonth.split("-").map(Number);
+    const firstWeekday = new Date(y, m - 1, 1).getDay();
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const byDate = new Map();
+    calendarMonthEvents.forEach((ev) => {
+      if (!byDate.has(ev.dateKey)) byDate.set(ev.dateKey, []);
+      byDate.get(ev.dateKey).push(ev);
+    });
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const day = index - firstWeekday + 1;
+      if (day < 1 || day > daysInMonth) return null;
+      const key = `${calendarMonth}-${pad2(day)}`;
+      return { day, key, events: byDate.get(key) || [] };
+    });
+  }, [calendarMonth, calendarMonthEvents]);
+
+  const calendarMonthStats = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    let overdueIncomeCount = 0;
+    calendarMonthEvents.forEach((ev) => {
+      if (ev.amount < 0) expense += Math.abs(ev.amount);
+      if (ev.amount > 0) {
+        if (ev.overdue) overdueIncomeCount += 1;
+        else income += ev.amount;
+      }
+    });
+    return { income, expense, overdueIncomeCount };
+  }, [calendarMonthEvents]);
+
+  const selectedCalendarEvents = useMemo(
+    () => calendarMonthEvents.filter((ev) => ev.dateKey === calendarSelectedDate),
+    [calendarMonthEvents, calendarSelectedDate]
+  );
+
+  const moveCalendarMonth = (delta) => {
+    const nextMonth = addMonthsToKey(calendarMonth, delta);
+    setCalendarMonth(nextMonth);
+    setCalendarSelectedDate(`${nextMonth}-01`);
+  };
+
+  const goCalendarToday = () => {
+    const today = startOfToday();
+    setCalendarMonth(monthKeyOf(today));
+    setCalendarSelectedDate(dateKeyOf(today));
+  };
 
   /* ----- mutation handlers ----- */
 
   const saveAccount = (acc) => {
-    update({ accounts: accounts.some((a) => a.id === acc.id) ? accounts.map((a) => a.id === acc.id ? acc : a) : [...accounts, acc] });
+    const isEdit = accounts.some((a) => a.id === acc.id);
+    update({ accounts: isEdit ? accounts.map((a) => a.id === acc.id ? acc : a) : [...accounts, acc] }, isEdit ? "口座を編集しました" : "口座を追加しました");
     setModal(null);
   };
   const deleteAccount = (id) => {
-    if (cards.some((c) => c.accountId === id)) { setConfirming(null); return; }
-    update({ accounts: accounts.filter((a) => a.id !== id), accountLogs: accountLogs.filter((l) => l.accountId !== id) });
+    // 修正4: 口座削除時に該当口座に紐づくincomeがないか確認
+    if (
+      cards.some((c) => c.accountId === id) ||
+      incomes.some((inc) => inc.accountId === id) ||
+      recurringRules.some((r) => r.accountId === id)
+    ) { 
+      setConfirming(null); 
+      return; 
+    }
+    update({ accounts: accounts.filter((a) => a.id !== id), accountLogs: accountLogs.filter((l) => l.accountId !== id) }, "口座を削除しました");
     setConfirming(null);
   };
   const saveCard = (card) => {
-    update({ cards: cards.some((c) => c.id === card.id) ? cards.map((c) => c.id === card.id ? card : c) : [...cards, card] });
+    const isEdit = cards.some((c) => c.id === card.id);
+    update({ cards: isEdit ? cards.map((c) => c.id === card.id ? card : c) : [...cards, card] }, isEdit ? "カードを編集しました" : "カードを追加しました");
     setModal(null);
   };
   const deleteCard = (id) => {
-    update({ cards: cards.filter((c) => c.id !== id), transactions: transactions.filter((t) => t.cardId !== id) });
+    update({ cards: cards.filter((c) => c.id !== id), transactions: transactions.filter((t) => t.cardId !== id) }, "カードを削除しました");
     setConfirming(null);
     if (selectedCardId === id) setSelectedCardId(null);
   };
   const saveTransaction = (tx) => {
-    update({ transactions: [...transactions, tx] });
+    update({ transactions: [...transactions, tx], lastUsedCardId: tx.cardId }, "カード利用を登録しました");
     setModal(null);
   };
   const deleteTransaction = (id) => {
-    update({ transactions: transactions.filter((t) => t.id !== id) });
+    update({ transactions: transactions.filter((t) => t.id !== id) }, "利用明細を削除しました");
     setConfirming(null);
   };
   const addAccountLog = (accountId, log) => {
@@ -492,8 +920,61 @@ export default function App() {
     update({
       accounts: accounts.map((a) => a.id === accountId ? { ...a, balance: a.balance + delta } : a),
       accountLogs: [...accountLogs, { ...log, accountId }],
-    });
+    }, log.type === "deposit" ? "入金を記録しました" : "出金を記録しました");
     setModal(null);
+  };
+  const saveIncome = (income) => {
+    update({ incomes: [...incomes, income] }, "収入予定を追加しました");
+    setModal(null);
+  };
+  const deleteIncome = (id) => {
+    update({ incomes: incomes.filter((inc) => inc.id !== id) }, "収入予定を削除しました");
+    setConfirming(null);
+  };
+
+  const saveRecurringRule = (rule) => {
+    const isEdit = recurringRules.some((r) => r.id === rule.id);
+    update({
+      recurringRules: isEdit
+        ? recurringRules.map((r) => r.id === rule.id ? rule : r)
+        : [...recurringRules, rule]
+    }, isEdit ? "定期予定を編集しました" : "定期予定を追加しました");
+    setModal(null);
+  };
+
+  const deleteRecurringRule = (id) => {
+    update({
+      recurringRules: recurringRules.filter((r) => r.id !== id),
+      recurringDone: recurringDone.filter((d) => d.ruleId !== id),
+    }, "定期予定を削除しました");
+    setConfirming(null);
+  };
+
+  const toggleRecurringRule = (id) => {
+    const target = recurringRules.find((r) => r.id === id);
+    const willResume = target?.active === false;
+    update({
+      recurringRules: recurringRules.map((r) => r.id === id ? { ...r, active: r.active === false } : r)
+    }, willResume ? "定期予定を再開しました" : "定期予定を停止しました");
+  };
+
+  const markRecurringAsDone = (event) => {
+    if (recurringDone.some((d) => d.key === event.key)) return;
+    const delta = event.type === "income" ? event.rawAmount : -event.rawAmount;
+    update({
+      recurringDone: [...recurringDone, {
+        key: event.key, ruleId: event.ruleId, month: event.month, type: event.type, completedAt: todayStr()
+      }],
+      accounts: accounts.map((a) => a.id === event.accountId ? { ...a, balance: a.balance + delta } : a),
+      accountLogs: [...accountLogs, {
+        id: uid(),
+        accountId: event.accountId,
+        type: event.type === "income" ? "deposit" : "withdraw",
+        amount: event.rawAmount,
+        date: todayStr(),
+        memo: `${event.label}（定期）`,
+      }],
+    }, event.type === "income" ? "定期収入を入金済みにしました" : "定期支出を支払済みにしました");
   };
 
   const markAsPaid = (cardId, paymentMonth) => {
@@ -503,7 +984,84 @@ export default function App() {
           ? { ...t, paid: true, paidDate: todayStr() }
           : t
       ),
-    });
+    }, "カード支払いを支払済みにしました");
+  };
+
+  const markIncomeAsReceived = (income) => {
+    update({
+      incomes: incomes.map(inc => inc.id === income.id ? { ...inc, received: true } : inc),
+      accounts: accounts.map(a => a.id === income.accountId ? { ...a, balance: a.balance + income.amount } : a),
+      accountLogs: [...accountLogs, {
+        id: uid(), accountId: income.accountId, type: "deposit", amount: income.amount, date: todayStr(), memo: income.name
+      }]
+    }, "収入予定を入金済みにしました");
+  };
+
+  /* ----- backup / restore ----- */
+
+  const exportBackup = () => {
+    const payload = {
+      format: "manekan-backup",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data,
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `manekan-backup-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setBackupMessage({ type: "success", text: "バックアップを書き出しました" });
+  };
+
+  const isValidBackupData = (candidate) => {
+    if (!candidate || typeof candidate !== "object") return false;
+    if (!Array.isArray(candidate.accounts)) return false;
+    if (!Array.isArray(candidate.cards)) return false;
+    if (!Array.isArray(candidate.transactions)) return false;
+    if (!Array.isArray(candidate.accountLogs)) return false;
+    if (candidate.incomes !== undefined && !Array.isArray(candidate.incomes)) return false;
+    if (candidate.recurringRules !== undefined && !Array.isArray(candidate.recurringRules)) return false;
+    if (candidate.recurringDone !== undefined && !Array.isArray(candidate.recurringDone)) return false;
+    return true;
+  };
+
+  const importBackup = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const restored = parsed?.format === "manekan-backup" ? parsed.data : parsed;
+
+      if (!isValidBackupData(restored)) {
+        throw new Error("invalid-backup");
+      }
+
+      const ok = window.confirm("現在のマネカンのデータを、このバックアップ内容で置き換えます。よろしいですか？");
+      if (!ok) return;
+
+      setUndoEntry({ data, label: "バックアップから復元しました" });
+      setData({
+        ...INITIAL,
+        ...restored,
+        incomes: restored.incomes ?? [],
+        recurringRules: restored.recurringRules ?? [],
+        recurringDone: restored.recurringDone ?? [],
+      });
+      setSelectedCardId(null);
+      setConfirming(null);
+      setBackupMessage({ type: "success", text: "バックアップから復元しました" });
+    } catch (e) {
+      setBackupMessage({ type: "error", text: "このファイルはマネカンのバックアップとして読み込めません" });
+    }
   };
 
   if (!loaded) {
@@ -558,24 +1116,28 @@ export default function App() {
         .mk-screen { padding: 0 16px 24px; }
 
         .mk-hero {
-          background: var(--surface);
-          border: 1px solid var(--line);
           border-radius: 20px;
-          padding: 20px 20px 16px;
+          padding: 24px 20px 20px;
           margin: 10px 0 14px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
         }
-        .mk-hero-top { display: flex; align-items: center; justify-content: space-between; }
-        .mk-hero-label { font-size: 13px; color: var(--ink-soft); display: flex; align-items: center; gap: 6px; }
+        .mk-hero-normal { background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
+        .mk-hero-warning { background: var(--coin-soft); border: 1px solid var(--alert); color: var(--alert); }
+        .mk-hero-danger { background: var(--danger-soft); border: 1px solid var(--danger); color: var(--danger); }
+        
+        .mk-hero-top { display: flex; align-items: center; justify-content: center; width: 100%; margin-bottom: 8px; }
+        .mk-hero-label { font-size: 14px; font-weight: bold; display: flex; align-items: center; gap: 6px; }
         .mk-hero-amount {
           font-family: var(--font-display);
           font-weight: 800;
-          font-size: 40px;
-          line-height: 1.15;
-          margin: 6px 0 2px;
-          letter-spacing: 0.01em;
+          font-size: 46px;
+          line-height: 1.1;
+          margin: 0 0 4px;
+          letter-spacing: 0.02em;
         }
-        .mk-hero-sub { font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; }
-        .mk-hero-row { display: flex; align-items: center; gap: 14px; }
 
         .mk-badge {
           display: inline-flex; align-items: center; gap: 6px;
@@ -634,7 +1196,7 @@ export default function App() {
         .mk-card-next { text-align: right; font-size: 12px; color: var(--ink-soft); }
         .mk-card-next b { color: var(--ink); font-size: 14px; }
 
-        .mk-fab-row { display: flex; gap: 10px; margin: 12px 0 16px; }
+        .mk-fab-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 16px; }
 
         /* card detail */
         .mk-detail-head { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; }
@@ -670,15 +1232,14 @@ export default function App() {
         .mk-passbook-balance-label { font-size: 11px; color: var(--ink-soft); margin-top: 6px; }
         .mk-passbook-balance { font-family: var(--font-display); font-weight: 800; font-size: 26px; margin-bottom: 6px; }
         .mk-passbook-divider { border: none; border-top: 1px dashed var(--line); margin: 8px 0; }
-        .mk-passbook-log-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 2px 0; }
+        .mk-passbook-log-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; }
         .mk-passbook-log-row.deposit { color: var(--bill); }
         .mk-passbook-log-row.withdraw { color: var(--danger); }
-        .mk-passbook-upcoming-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 2px 0; color: var(--ink-soft); }
+        .mk-passbook-upcoming-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 0; color: var(--ink-soft); }
         .mk-passbook-upcoming-row.overdue { color: var(--danger); font-weight: 700; }
         .mk-passbook-actions { display: flex; gap: 8px; margin-top: 12px; }
 
         /* wallet tab */
-        .mk-wallet-hero { display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px; }
         .mk-equation { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin: 16px 0; }
         .mk-equation-row { display: flex; justify-content: space-between; font-size: 13.5px; padding: 4px 0; }
         .mk-equation-row.total { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; font-weight: 700; font-size: 15px; }
@@ -692,30 +1253,6 @@ export default function App() {
         .mk-transition-label.danger { color: var(--danger); font-weight: 700; }
         .mk-transition-amount { font-weight: 700; margin-left: auto; }
         .mk-transition-amount.negative { color: var(--danger); }
-
-        /* wallet visual */
-        .mk-wallet-large .mk-wallet-pocket { width: 210px; height: 150px; }
-        .mk-wallet-small .mk-wallet-pocket { width: 46px; height: 34px; }
-        .mk-wallet-pocket {
-          position: relative; border-radius: 16px 16px 22px 22px;
-          background: linear-gradient(145deg, #fff, var(--bill-soft));
-          border: 2px solid var(--bill); overflow: hidden;
-          display: flex; align-items: flex-end; justify-content: center; padding: 8px;
-        }
-        .mk-wallet-danger .mk-wallet-pocket { border-color: var(--danger); background: linear-gradient(145deg, #fff, var(--danger-soft)); }
-        .mk-wallet-empty .mk-wallet-pocket { border-color: var(--line); background: var(--paper); }
-        .mk-wallet-contents { display: flex; flex-direction: column-reverse; align-items: center; gap: 3px; width: 100%; }
-        .mk-bill {
-          width: 82%; height: 14px; border-radius: 3px;
-          background: linear-gradient(90deg, var(--bill), color-mix(in srgb, var(--bill) 70%, white));
-          border: 1px solid color-mix(in srgb, var(--bill) 60%, black);
-        }
-        .mk-wallet-small .mk-bill { height: 6px; }
-        .mk-coins-row { display: flex; gap: 3px; margin-top: 2px; }
-        .mk-coin { width: 16px; height: 16px; border-radius: 50%; background: var(--coin); border: 1px solid color-mix(in srgb, var(--coin) 60%, black); }
-        .mk-wallet-small .mk-coin { width: 8px; height: 8px; }
-        .mk-wallet-flap { position: absolute; top: -6px; left: 10%; right: 10%; height: 18px; border-radius: 0 0 40% 40%; background: var(--paper); border: 2px solid var(--line); border-top: none; }
-        .mk-wallet-warn { position: absolute; top: 8px; color: var(--danger); }
 
         /* nav */
         .mk-nav {
@@ -785,6 +1322,154 @@ export default function App() {
           background: var(--surface); cursor: pointer; display: flex; align-items: center; gap: 3px;
         }
         .mk-mini-danger { border-color: var(--danger); color: var(--danger); }
+        .mk-data-tools { display: flex; flex-direction: column; gap: 8px; }
+        .mk-data-tools-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .mk-file-btn { position: relative; overflow: hidden; }
+        .mk-file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+        .mk-backup-note { color: var(--ink-soft); font-size: 11px; line-height: 1.55; }
+        .mk-backup-message { font-size: 12px; padding: 8px 10px; border-radius: 8px; }
+        .mk-backup-message.success { background: var(--bill-soft); color: var(--bill); }
+        .mk-backup-message.error { background: var(--danger-soft); color: var(--danger); }
+
+        /* future calendar */
+        .mk-calendar-shell { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px; }
+        .mk-calendar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+        .mk-calendar-month { font-family: var(--font-display); font-size: 19px; font-weight: 800; text-align: center; flex: 1; }
+        .mk-calendar-nav { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .mk-calendar-today { border: none; background: var(--paper); color: var(--ink-soft); border-radius: 999px; padding: 5px 10px; font-size: 11px; cursor: pointer; font-family: var(--font-body); }
+        .mk-calendar-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 12px; }
+        .mk-calendar-stat { border-radius: 12px; padding: 9px 10px; background: var(--paper); }
+        .mk-calendar-stat-label { font-size: 10.5px; color: var(--ink-soft); }
+        .mk-calendar-stat-value { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin-top: 2px; }
+        .mk-calendar-weekdays, .mk-calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .mk-calendar-weekday { text-align: center; font-size: 10px; color: var(--ink-soft); padding: 3px 0; }
+        .mk-calendar-day {
+          aspect-ratio: 1 / 1.02; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--ink);
+          padding: 5px 3px 4px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; cursor: pointer; min-width: 0;
+        }
+        .mk-calendar-day:hover { background: var(--paper); }
+        .mk-calendar-day.selected { background: var(--bill-soft); border-color: color-mix(in srgb, var(--bill) 45%, transparent); }
+        .mk-calendar-day.today { box-shadow: inset 0 0 0 1px var(--indigo); }
+        .mk-calendar-day-number { font-size: 11.5px; font-weight: 700; line-height: 1; }
+        .mk-calendar-dots { display: flex; gap: 2px; min-height: 5px; align-items: center; justify-content: center; max-width: 100%; }
+        .mk-calendar-dot { width: 5px; height: 5px; border-radius: 50%; flex: 0 0 auto; }
+        .mk-calendar-dot.income { background: var(--bill); }
+        .mk-calendar-dot.expense { background: var(--danger); }
+        .mk-calendar-dot.alert { background: var(--alert); }
+        .mk-calendar-more { font-size: 8px; color: var(--ink-soft); line-height: 1; }
+        .mk-calendar-note { font-size: 10.5px; color: var(--ink-soft); line-height: 1.5; margin-top: 10px; }
+        .mk-calendar-detail { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-top: 10px; }
+        .mk-calendar-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+        .mk-calendar-detail-date { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+        .mk-calendar-detail-count { font-size: 10.5px; color: var(--ink-soft); }
+        .mk-calendar-event { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-top: 1px dashed var(--line); }
+        .mk-calendar-event:first-of-type { border-top: none; }
+        .mk-calendar-event-mark { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+        .mk-calendar-event-main { min-width: 0; flex: 1; }
+        .mk-calendar-event-name { font-size: 12.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mk-calendar-event-meta { font-size: 10.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.4; }
+        .mk-calendar-event-amount { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+        .mk-calendar-event-actions { display: flex; align-items: center; gap: 5px; }
+        .mk-calendar-warning { margin-top: 10px; background: var(--coin-soft); color: var(--alert); border-radius: 10px; padding: 8px 10px; font-size: 11px; display: flex; align-items: flex-start; gap: 6px; line-height: 1.45; }
+
+        /* recurring rules */
+        .mk-recurring-box { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 14px; }
+        .mk-recurring-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+        .mk-recurring-title { font-size: 13px; font-weight: 700; }
+        .mk-recurring-list { display: flex; flex-direction: column; gap: 7px; }
+        .mk-recurring-item { display: flex; align-items: center; gap: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
+        .mk-recurring-item:first-child { border-top: none; padding-top: 0; }
+        .mk-recurring-main { min-width: 0; flex: 1; }
+        .mk-recurring-name { font-size: 12.5px; font-weight: 700; display: flex; gap: 6px; align-items: center; }
+        .mk-recurring-meta { font-size: 10.5px; color: var(--ink-soft); margin-top: 2px; }
+        .mk-recurring-amount { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+        .mk-recurring-paused { opacity: 0.5; }
+
+        /* quick transaction */
+        .mk-quick-fab {
+          position: fixed;
+          right: max(16px, calc((100vw - 480px) / 2 + 16px));
+          bottom: calc(78px + env(safe-area-inset-bottom));
+          z-index: 35;
+          border: none;
+          border-radius: 999px;
+          background: var(--indigo);
+          color: #fff;
+          padding: 12px 16px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-family: var(--font-body);
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          box-shadow: 0 8px 24px rgba(33,48,58,0.24);
+        }
+        .mk-quick-note { font-size: 11.5px; line-height: 1.55; color: var(--ink-soft); }
+        .mk-quick-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .mk-quick-card {
+          min-width: 0;
+          border: 1px solid var(--line);
+          background: var(--surface);
+          border-radius: 10px;
+          padding: 9px 10px;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          color: var(--ink-soft);
+          font-family: var(--font-body);
+          font-size: 12px;
+          cursor: pointer;
+          text-align: left;
+        }
+        .mk-quick-card span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mk-quick-card.active {
+          border-color: var(--quick-color);
+          color: var(--ink);
+          background: color-mix(in srgb, var(--quick-color) 8%, white);
+          font-weight: 700;
+        }
+        .mk-quick-card-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--quick-color); flex: 0 0 auto; }
+        .mk-quick-amount-input { font-family: var(--font-display) !important; font-size: 26px !important; font-weight: 800; }
+        .mk-quick-auto-month {
+          min-height: 43px;
+          display: flex;
+          align-items: center;
+          padding: 9px 10px;
+          border-radius: 8px;
+          border: 1px solid var(--line);
+          background: var(--paper);
+          color: var(--ink);
+          font-size: 14px;
+        }
+
+        /* one-step undo */
+        .mk-undo-toast {
+          position: fixed;
+          left: 50%;
+          transform: translateX(-50%);
+          bottom: calc(136px + env(safe-area-inset-bottom));
+          width: calc(100% - 32px);
+          max-width: 448px;
+          z-index: 42;
+          background: var(--ink);
+          color: #fff;
+          border-radius: 12px;
+          padding: 10px 10px 10px 12px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          box-shadow: 0 10px 28px rgba(33,48,58,0.28);
+          font-size: 12px;
+        }
+        .mk-undo-toast-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mk-undo-action {
+          border: none; background: #fff; color: var(--ink); border-radius: 8px; padding: 6px 9px;
+          font-family: var(--font-body); font-size: 11.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+        }
+        .mk-undo-close {
+          border: none; background: none; color: rgba(255,255,255,0.72); padding: 3px; cursor: pointer; display: flex;
+        }
         .mk-empty-note { color: var(--ink-soft); font-size: 13px; text-align: center; padding: 30px 10px; }
       `}</style>
 
@@ -792,15 +1477,19 @@ export default function App() {
         <div>
           <div className="mk-header"><h1>マネカン</h1></div>
           <div className="mk-screen">
-            <div className="mk-hero">
+            
+            <div className={`mk-hero mk-hero-${heroState.type}`}>
               <div className="mk-hero-top">
-                <span className="mk-hero-label"><Wallet size={15} /> 自由に使える金額</span>
-                <StatusBadge status={status} />
+                <span className="mk-hero-label" style={{ color: "inherit" }}>
+                  <Wallet size={16} /> 自由に使える金額
+                </span>
               </div>
-              <div className="mk-hero-amount">{yen(freeMoney)}</div>
-              <div className="mk-hero-sub">今後の支払いを考慮した金額です。</div>
-              <div className="mk-hero-row">
-                <WalletVisual free={freeMoney} low={thresholdLow} mid={thresholdMid} size="small" />
+              <div className="mk-hero-amount" style={{ color: "inherit" }}>{yen(freeMoney)}</div>
+              <div style={{ fontSize: "12px", opacity: 0.8, marginBottom: "12px" }}>
+                今後の支払いを考慮した金額です
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13.5px", fontWeight: "bold" }}>
+                {heroState.icon} <span>{heroState.label}</span>
               </div>
             </div>
 
@@ -975,7 +1664,48 @@ export default function App() {
           <div className="mk-screen">
             <div className="mk-fab-row">
               <button className="mk-btn-add" onClick={() => setModal({ type: "addAccount" })}><Plus size={16} /> 口座を追加</button>
+              <button className="mk-btn-add" onClick={() => setModal({ type: "addIncome" })}><Plus size={16} /> 収入予定を追加</button>
             </div>
+
+            <div className="mk-recurring-box">
+              <div className="mk-recurring-head">
+                <span className="mk-recurring-title">↻ 定期収入・定期支出</span>
+                <button className="mk-mini-btn" onClick={() => setModal({ type: "addRecurring" })}>
+                  <Plus size={13} /> 定期予定を追加
+                </button>
+              </div>
+              {recurringRules.length === 0 ? (
+                <div className="mk-quick-note">毎月のバイト代・家賃・サブスクなどを一度登録すると、未来の予定に自動で表示します。</div>
+              ) : (
+                <div className="mk-recurring-list">
+                  {recurringRules.map((r) => (
+                    <div key={r.id} className={`mk-recurring-item ${r.active === false ? "mk-recurring-paused" : ""}`}>
+                      <div className="mk-recurring-main">
+                        <div className="mk-recurring-name">
+                          <span>{r.type === "income" ? "収入" : "支出"}</span>
+                          <span>{r.name}</span>
+                        </div>
+                        <div className="mk-recurring-meta">
+                          毎月{r.day}日 ・ {accounts.find((a) => a.id === r.accountId)?.name ?? "口座不明"}
+                          {r.active === false ? " ・ 停止中" : ""}
+                        </div>
+                      </div>
+                      <span className="mk-recurring-amount" style={{ color: r.type === "income" ? 'var(--bill)' : 'var(--danger)' }}>
+                        {r.type === "income" ? "+" : "-"}{yen(r.amount).replace("-", "")}
+                      </span>
+                      <button className="mk-mini-btn" onClick={() => toggleRecurringRule(r.id)}>{r.active === false ? "再開" : "停止"}</button>
+                      <button className="mk-icon-btn" onClick={() => setModal({ type: "editRecurring", payload: r })}><Pencil size={14} /></button>
+                      {confirming === "rr-" + r.id ? (
+                        <ConfirmDelete onConfirm={() => deleteRecurringRule(r.id)} onCancel={() => setConfirming(null)} />
+                      ) : (
+                        <button className="mk-icon-btn" onClick={() => setConfirming("rr-" + r.id)}><Trash2 size={14} /></button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {accountViews.length === 0 && <div className="mk-empty-note">口座が登録されていません</div>}
             {accountViews.map((a) => (
               <div key={a.id} className="mk-passbook">
@@ -984,8 +1714,8 @@ export default function App() {
                   <div className="mk-icon-row">
                     <button className="mk-icon-btn" onClick={() => setModal({ type: "editAccount", payload: a })}><Pencil size={15} /></button>
                     {confirming === "acc-" + a.id ? (
-                      cards.some((c) => c.accountId === a.id) ? (
-                        <span className="mk-confirm">紐づくカードがあり削除できません
+                      cards.some((c) => c.accountId === a.id) || incomes.some((inc) => inc.accountId === a.id) || recurringRules.some((r) => r.accountId === a.id) ? (
+                        <span className="mk-confirm">紐づくカード・収入予定・定期予定があり削除できません
                           <button className="mk-mini-btn" onClick={() => setConfirming(null)}>閉じる</button>
                         </span>
                       ) : (
@@ -1014,11 +1744,47 @@ export default function App() {
                 {a.upcoming.length > 0 && (
                   <>
                     <hr className="mk-passbook-divider" />
-                    <div className="mk-passbook-balance-label">引落予定</div>
-                    {a.upcoming.slice(0, 4).map((u, i) => (
-                      <div key={i} className={`mk-passbook-upcoming-row ${u.overdue ? "overdue" : ""}`}>
-                        <span>{u.overdue ? "⚠ " : ""}{fmtDate(u.date)} {u.cardName}</span>
-                        <span>-{yen(u.amount).replace("-", "")}</span>
+                    <div className="mk-passbook-balance-label">未来の予定</div>
+                    {a.upcoming.slice(0, 6).map((u, i) => (
+                      <div key={u.key ?? u.original?.id ?? `${u.type}-${i}`} className={`mk-passbook-upcoming-row ${u.overdue && u.type !== 'income' ? "overdue" : ""}`} style={{ alignItems: u.type === 'income' ? 'flex-start' : 'center' }}>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span>
+                            {u.overdue && u.type !== 'income' ? "⚠ " : ""}
+                            {fmtDate(u.date)} {u.label}{u.recurring ? "（定期）" : ""}
+                          </span>
+                          {u.type === 'income' && u.overdue && (
+                            <span style={{ fontSize: '10.5px', color: 'var(--alert)', marginTop: '2px', display: 'flex', alignItems: 'center' }}>
+                               <AlertTriangle size={10} style={{ marginRight: 2 }} /> 入金予定日超過・未確認
+                            </span>
+                          )}
+                        </div>
+                        
+                        {u.type === 'income' ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              <span style={{ color: u.overdue ? 'var(--ink-soft)' : 'var(--bill)', fontWeight: 'bold' }}>
+                                +{yen(u.amount).replace("-", "")}
+                              </span>
+                              <button className="mk-mini-btn" onClick={() => u.recurring ? markRecurringAsDone(u) : markIncomeAsReceived(u.original)}>入金済みにする</button>
+                              {!u.recurring && (
+                                confirming === "inc-" + u.original.id ? (
+                                  <ConfirmDelete onConfirm={() => deleteIncome(u.original.id)} onCancel={() => setConfirming(null)} />
+                                ) : (
+                                  <button className="mk-icon-btn" onClick={() => setConfirming("inc-" + u.original.id)}><Trash2 size={14} /></button>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        ) : u.type === 'expense' && u.recurring ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>-{yen(u.rawAmount).replace("-", "")}</span>
+                            <button className="mk-mini-btn" onClick={() => markRecurringAsDone(u)}>支払済みにする</button>
+                          </div>
+                        ) : (
+                          <span>-{yen(-u.amount).replace("-", "")}</span>
+                        )}
+                        
                       </div>
                     ))}
                   </>
@@ -1042,14 +1808,134 @@ export default function App() {
         </div>
       )}
 
+      {tab === "calendar" && (
+        <div>
+          <div className="mk-header"><h1>未来カレンダー</h1></div>
+          <div className="mk-screen">
+            <div className="mk-calendar-shell">
+              <div className="mk-calendar-head">
+                <button className="mk-calendar-nav" onClick={() => moveCalendarMonth(-1)} aria-label="前の月"><ChevronLeft size={18} /></button>
+                <div className="mk-calendar-month">{monthLabel(calendarMonth)}</div>
+                <button className="mk-calendar-nav" onClick={() => moveCalendarMonth(1)} aria-label="次の月"><ChevronRight size={18} /></button>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <button className="mk-calendar-today" onClick={goCalendarToday}>今月に戻る</button>
+              </div>
+
+              <div className="mk-calendar-stats">
+                <div className="mk-calendar-stat">
+                  <div className="mk-calendar-stat-label">入金予定</div>
+                  <div className="mk-calendar-stat-value" style={{ color: 'var(--bill)' }}>+{yen(calendarMonthStats.income).replace("-", "")}</div>
+                </div>
+                <div className="mk-calendar-stat">
+                  <div className="mk-calendar-stat-label">支出予定</div>
+                  <div className="mk-calendar-stat-value" style={{ color: 'var(--danger)' }}>-{yen(calendarMonthStats.expense).replace("-", "")}</div>
+                </div>
+              </div>
+
+              <div className="mk-calendar-weekdays">
+                {["日", "月", "火", "水", "木", "金", "土"].map((w) => <div key={w} className="mk-calendar-weekday">{w}</div>)}
+              </div>
+              <div className="mk-calendar-grid">
+                {calendarGrid.map((cell, index) => {
+                  if (!cell) return <div key={`blank-${index}`} />;
+                  const isSelected = calendarSelectedDate === cell.key;
+                  const isToday = cell.key === todayStr();
+                  const dots = cell.events.slice(0, 3);
+                  return (
+                    <button
+                      key={cell.key}
+                      className={`mk-calendar-day ${isSelected ? "selected" : ""} ${isToday ? "today" : ""}`}
+                      onClick={() => setCalendarSelectedDate(cell.key)}
+                      aria-label={`${cell.day}日 ${cell.events.length}件の予定`}
+                    >
+                      <span className="mk-calendar-day-number">{cell.day}</span>
+                      <span className="mk-calendar-dots">
+                        {dots.map((ev) => (
+                          <span
+                            key={ev.id}
+                            className={`mk-calendar-dot ${ev.amount > 0 ? (ev.overdue ? "alert" : "income") : "expense"}`}
+                          />
+                        ))}
+                        {cell.events.length > 3 && <span className="mk-calendar-more">+{cell.events.length - 3}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mk-calendar-note">緑＝入金、赤＝支出、オレンジ＝入金予定日超過・未確認。同日の予定は安全側に倒して支出を先に扱います。</div>
+              {calendarMonthStats.overdueIncomeCount > 0 && (
+                <div className="mk-calendar-warning">
+                  <AlertTriangle size={14} />
+                  <span>期限を過ぎた未確認の入金が{calendarMonthStats.overdueIncomeCount}件あります。安全のため入金予定合計と未来残高の計算には含めません。</span>
+                </div>
+              )}
+            </div>
+
+            <div className="mk-calendar-detail">
+              <div className="mk-calendar-detail-head">
+                <span className="mk-calendar-detail-date">{fmtDateFull(new Date(calendarSelectedDate + "T00:00:00"))}</span>
+                <span className="mk-calendar-detail-count">{selectedCalendarEvents.length}件</span>
+              </div>
+
+              {selectedCalendarEvents.length === 0 ? (
+                <div className="mk-empty-note" style={{ padding: '18px 8px' }}>この日の予定はありません</div>
+              ) : (
+                selectedCalendarEvents.map((ev) => (
+                  <div key={ev.id} className="mk-calendar-event">
+                    <span
+                      className="mk-calendar-event-mark"
+                      style={{ background: ev.amount > 0 ? (ev.overdue ? 'var(--alert)' : 'var(--bill)') : 'var(--danger)' }}
+                    />
+                    <div className="mk-calendar-event-main">
+                      <div className="mk-calendar-event-name">{ev.label}{ev.recurring ? "（定期）" : ""}</div>
+                      <div className="mk-calendar-event-meta">
+                        {ev.sourceLabel} ・ {ev.accountName}
+                        {ev.overdue && ev.amount > 0 ? " ・ 入金予定日超過・計算除外" : ev.overdue ? " ・ 期限超過" : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '5px' }}>
+                      <span className="mk-calendar-event-amount" style={{ color: ev.amount > 0 ? (ev.overdue ? 'var(--ink-soft)' : 'var(--bill)') : 'var(--danger)' }}>
+                        {ev.amount > 0 ? "+" : "-"}{yen(Math.abs(ev.amount)).replace("-", "")}
+                      </span>
+                      <div className="mk-calendar-event-actions">
+                        {ev.type === 'payment' && (
+                          <button className="mk-mini-btn" onClick={() => markAsPaid(ev.cardId, ev.paymentMonth)}>支払済み</button>
+                        )}
+                        {ev.type === 'income' && ev.recurring && (
+                          <button className="mk-mini-btn" onClick={() => markRecurringAsDone(ev)}>入金済み</button>
+                        )}
+                        {ev.type === 'expense' && ev.recurring && (
+                          <button className="mk-mini-btn" onClick={() => markRecurringAsDone(ev)}>支払済み</button>
+                        )}
+                        {ev.type === 'income' && !ev.recurring && (
+                          <button className="mk-mini-btn" onClick={() => markIncomeAsReceived(ev.original)}>入金済み</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === "wallet" && (
         <div>
           <div className="mk-header"><h1>財布</h1></div>
           <div className="mk-screen">
-            <div className="mk-wallet-hero">
-              <WalletVisual free={freeMoney} low={thresholdLow} mid={thresholdMid} size="large" />
-              <div className="mk-hero-amount" style={{ marginTop: 14 }}>{yen(freeMoney)}</div>
-              <StatusBadge status={status} />
+            
+            <div className={`mk-hero mk-hero-${heroState.type}`} style={{ marginBottom: 24 }}>
+              <div className="mk-hero-top">
+                <span className="mk-hero-label" style={{ color: "inherit" }}>
+                  <Wallet size={16} /> 自由に使える金額
+                </span>
+              </div>
+              <div className="mk-hero-amount" style={{ color: "inherit" }}>{yen(freeMoney)}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13.5px", fontWeight: "bold", marginTop: "4px" }}>
+                {heroState.icon} <span>{heroState.label}</span>
+              </div>
             </div>
 
             <div className="mk-equation">
@@ -1074,17 +1960,66 @@ export default function App() {
               </div>
             </div>
 
+            <div className="mk-section-title">データ管理</div>
+            <div className="mk-equation mk-data-tools">
+              <div className="mk-data-tools-row">
+                <button className="mk-btn mk-btn-ghost" onClick={exportBackup}>
+                  <Download size={15} style={{ marginRight: 6 }} /> バックアップ
+                </button>
+                <label className="mk-btn mk-btn-ghost mk-file-btn" style={{ textAlign: "center" }}>
+                  <Upload size={15} style={{ marginRight: 6, verticalAlign: "middle" }} /> 復元
+                  <input type="file" accept=".json,application/json" onChange={importBackup} />
+                </label>
+              </div>
+              <div className="mk-backup-note">
+                バックアップはこの端末にJSONファイルとして保存されます。復元すると現在のデータを置き換えます。ファイルには口座名・残高・利用明細などが含まれるため、他人と共有しないでください。
+              </div>
+              {backupMessage && (
+                <div className={`mk-backup-message ${backupMessage.type}`}>{backupMessage.text}</div>
+              )}
+            </div>
+
             <div className="mk-section-title">未来の資金推移</div>
             <div className="mk-equation">
               {fundsTransition.map((r, i) => (
                 <div key={i} className="mk-transition-row">
                   <span className={`mk-transition-label ${r.label === "期限超過" ? "danger" : ""}`}>{r.label}</span>
-                  <ChevronRight size={13} color="var(--ink-soft)" />
+                  {r.name && (
+                    <span style={{ fontSize: '11px', color: r.isOverdueIncome ? 'var(--alert)' : 'var(--ink-soft)', marginLeft: '4px', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {r.isOverdueIncome && <AlertTriangle size={10} style={{marginRight: 2}} />}
+                      {r.name}
+                    </span>
+                  )}
+                  {r.delta !== undefined && (
+                    <span style={{ fontSize: '12px', fontWeight: 'bold', color: r.isOverdueIncome ? 'var(--ink-soft)' : (r.delta > 0 ? 'var(--bill)' : 'var(--danger)'), margin: '0 8px' }}>
+                      {r.isOverdueIncome ? '(計算除外)' : `${r.delta > 0 ? '+' : ''}${yen(r.delta)}`}
+                    </span>
+                  )}
                   <span className={`mk-transition-amount ${r.amount < 0 ? "negative" : ""}`}>{yen(r.amount)}</span>
                 </div>
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {cards.length > 0 && !modal && (
+        <button
+          className="mk-quick-fab"
+          onClick={() => setModal({ type: "quickTx" })}
+          aria-label="カード利用をクイック登録"
+        >
+          <Plus size={18} /> 利用登録
+        </button>
+      )}
+
+      {undoEntry && !modal && (
+        <div className="mk-undo-toast" role="status" aria-live="polite">
+          <span className="mk-undo-toast-text">{undoEntry.label}</span>
+          <button className="mk-undo-action" onClick={undoLastChange}>取り消す</button>
+          <button className="mk-undo-close" onClick={() => setUndoEntry(null)} aria-label="取り消し通知を閉じる">
+            <X size={15} />
+          </button>
         </div>
       )}
 
@@ -1097,6 +2032,9 @@ export default function App() {
         </button>
         <button className={`mk-nav-btn ${tab === "accounts" ? "active" : ""}`} onClick={() => setTab("accounts")}>
           <BookOpen size={20} /> 口座
+        </button>
+        <button className={`mk-nav-btn ${tab === "calendar" ? "active" : ""}`} onClick={() => setTab("calendar")}>
+          <CalendarDays size={20} /> 予定
         </button>
         <button className={`mk-nav-btn ${tab === "wallet" ? "active" : ""}`} onClick={() => setTab("wallet")}>
           <Wallet size={20} /> 財布
@@ -1128,9 +2066,34 @@ export default function App() {
           <TransactionForm cards={cards} presetCardId={modal.payload?.cardId} onSave={saveTransaction} onCancel={() => setModal(null)} />
         </Modal>
       )}
+      {modal?.type === "quickTx" && (
+        <Modal title="クイック利用登録" onClose={() => setModal(null)}>
+          <QuickTransactionForm
+            cards={cards}
+            presetCardId={lastUsedCardId}
+            onSave={saveTransaction}
+            onCancel={() => setModal(null)}
+          />
+        </Modal>
+      )}
       {modal?.type === "addLog" && (
         <Modal title="入出金を記録" onClose={() => setModal(null)}>
           <AccountLogForm onSave={(log) => addAccountLog(modal.payload, log)} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal?.type === "addIncome" && (
+        <Modal title="収入予定を追加" onClose={() => setModal(null)}>
+          <IncomeForm accounts={accounts} onSave={saveIncome} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal?.type === "addRecurring" && (
+        <Modal title="定期予定を追加" onClose={() => setModal(null)}>
+          <RecurringRuleForm accounts={accounts} onSave={saveRecurringRule} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+      {modal?.type === "editRecurring" && (
+        <Modal title="定期予定を編集" onClose={() => setModal(null)}>
+          <RecurringRuleForm initial={modal.payload} accounts={accounts} onSave={saveRecurringRule} onCancel={() => setModal(null)} />
         </Modal>
       )}
     </div>
