@@ -8,6 +8,8 @@ on:
       - '.materialize/app.part2'
       - '.materialize/app.part3'
       - '.materialize/app.part4'
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -17,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: pwa-v0.3.6
       - name: Rebuild App.jsx
         shell: bash
         run: |
@@ -33,4 +37,4 @@ jobs:
             exit 0
           fi
           git commit -m "Update App.jsx to v0.3.6"
-          git push
+          git push origin HEAD:pwa-v0.3.6
